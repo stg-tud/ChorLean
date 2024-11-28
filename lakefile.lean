@@ -8,13 +8,10 @@ package «chorlean» where
 lean_lib «Chorlean» where
   -- add library configuration options here
 
-oreLinkArgs := #["-L./.lake/packages/LeanCopilot/.lake/build/lib", "-lctranslate2"]
-
 require mathlib from git
   "https://github.com/leanprover-community/mathlib4.git" @ "bump/v4.10.0"
 require socket from git
   "https://github.com/hargoniX/socket.lean" @ "main"
-require LeanCopilot from git "https://github.com/lean-dojo/LeanCopilot.git" @ "v1.4.1"
 
 @[default_target]
 lean_exe «chorlean» where
