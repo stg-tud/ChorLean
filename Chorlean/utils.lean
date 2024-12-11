@@ -5,14 +5,23 @@ import Lean.Data.Json.Basic
 import Lean.Data.Json.Parser
 import Lean.Data.Json.Printer
 import Chorlean.utils.Colors
---prints the endpoint at program start
-def dbg_print_EP := true
---prints sent and received network bytes
-def dbg_print_net_msgs := true
---print info when waiting for connecting to a location
-def dbg_print_init_sockets := true
--- print sent and received bytes
-def dbg_print_net_bytes := false
+
+
+structure dbg_cfg where
+    --prints the endpoint at program start
+  print_EP := true
+  --prints sent and received network bytes
+  print_net_msgs := true
+  --print info when waiting for connecting to a location
+  print_init_sockets := true
+  -- print sent and received bytes
+  print_net_bytes := false
+
+
+def dbg_cfg_default: dbg_cfg :=  {}
+
+
+variable {cfg:dbg_cfg}
 
 -- millis to wait for resend after a failed send try
 def send_timeout_duration: UInt32 := 200
@@ -52,10 +61,9 @@ def from_bytes_t (α) := ByteArray -> Except String α
 class Serialize (μ: Type) extends ToString μ where
   to_bytes: μ -> ByteArray
   from_bytes: ByteArray -> Except String μ
-
-
-  type_name: String
+  type_name: String := "type"
   pretty: μ -> String := fun x => s!"{(ToString.toString x).dyeFont Color.Cyan}: {type_name}"
+  toString _ := "-"
 
 variable {μ: Type} [Serialize μ]  -- mu wegen msg Type
 
@@ -65,14 +73,10 @@ def String.byte_count (s:String): Nat :=
 def String.to_bytes: to_bytes_t String := fun s => s.toUTF8
 def String.from_bytes: from_bytes_t String := fun bs => return (String.fromUTF8! bs)
 
-#eval toString true
 
 def t1:UInt16 := 600
 def t2: UInt8 := t1.toUInt8
 def t3: UInt8 := (t1.shiftRight 8).toUInt8
-#eval t2
-#eval t3
-#eval (t2.toUInt16) + (t3.toUInt16.shiftLeft 8)
 
 def Bool.to_bytes: to_bytes_t Bool := fun x => (toString x).to_bytes
 
@@ -84,18 +88,6 @@ def Bool.from_bytes: from_bytes_t Bool := fun bs => do
     return b
   | none => throw "received unconvertable nat"
 
-#check UInt16
-
-def res := ByteArray.mkEmpty 1
-#eval res
-def res2 := res.push 2
-#eval res2
-def res3 := res.push 3
-#eval res3
-
-#eval #[1,2,3,4,5,6].toSubarray 2 3
-
-#check ByteArray
 def Option.to_bytes [Serialize α]: to_bytes_t (Option α) := fun x => match x with
   | some v =>   [(1:UInt8)].toByteArray ++ (Serialize.to_bytes v)
   | none => [(0:UInt8)].toByteArray
@@ -364,7 +356,7 @@ def Socket.send_val2 (sock: Socket) (msg: μ): IO Unit := do
   let packet := size_info ++ payload
   let sz ← sock.send packet
 
-  if dbg_print_net_bytes then
+  if cfg.print_net_bytes then
     IO.println s!"send bytes {packet}"
   assert! sz == packet.size.toUSize
 
@@ -506,3 +498,7 @@ def List.even_chunks(ls: List α) (n:Nat): {l: List (List α) // l.length = n} :
 
 
   #eval [1,23,4,5,6,7,34].toChunks 4
+
+
+instance [Repr t]: ToString t where
+  toString := reprStr

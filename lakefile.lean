@@ -2,7 +2,6 @@ import Lake
 open Lake DSL
 
 package «chorlean» where
-  moreLinkArgs := #["-L./.lake/packages/LeanCopilot/.lake/build/lib", "-lctranslate2"]
   -- add package configuration options here
 
 lean_lib «Chorlean» where
@@ -27,12 +26,13 @@ lean_exe merge where
   moreLeancArgs := #["-fPIC"]
   supportInterpreter := true
 
-lean_exe db where
-  root := `Chorlean.examples.database
-  moreLeancArgs := #["-fPIC"]
-  supportInterpreter := true
 
 lean_exe books where
   root := `Chorlean.examples.bookseller1
+  moreLeancArgs := #["-fPIC"]
+  supportInterpreter := true
+
+lean_exe RPS where
+  root := `Chorlean.examples.sso_authcopy
   moreLeancArgs := #["-fPIC"]
   supportInterpreter := true
