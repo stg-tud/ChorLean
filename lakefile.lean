@@ -22,13 +22,13 @@ lean_exe auth where
   supportInterpreter := true
 
 lean_exe merge where
-  root := `Chorlean.examples.mergesort_demo
+  root := `Chorlean.examples.mergesort
   moreLeancArgs := #["-fPIC"]
   supportInterpreter := true
 
 
 lean_exe books where
-  root := `Chorlean.examples.bookseller1
+  root := `Chorlean.examples.bookseller
   moreLeancArgs := #["-fPIC"]
   supportInterpreter := true
 
