@@ -4,26 +4,14 @@ import Mathlib.Tactic.DeriveFintype
 import Mathlib.Data.List.Sort
 open Effect
 
-variable (n: Nat)
-
-inductive Location
-| Master | Worker: Fin n -> Location
-deriving Repr
-
-instance: FinEnum (Location n) :=
-  FinEnum.ofEquiv _ (proxy_equiv% (Location n)).symm
-open Location
-
-abbrev N := 2
-
 instance r_inst: Role where
-  δ := Location N
-  adj
-  | Master, Worker 0, _
-  | Worker 0, Master, _
-  | Worker _, Worker _, _ => true
-  | Worker _, Master, _
-  | Master, Worker _, _ => false
+  N := 3
+  name
+  | 0 => "Master" | 1 => "W1" | 2 => "W2"
+
+def Master: Fin 3 := 0
+def W0: Fin 3 := 1
+def W1: Fin 3 := 2
 
 variable [ep_inst: Endpoint]
 
@@ -42,17 +30,17 @@ abbrev sort_serial': List Nat -> List Nat:=
   List.mergeSort (· < ·)
 
 def par_sort
-  (ls:  (List Nat) @ (· = Worker 0))
-  : Choreo (· ≠ Master) c ((List Nat)  @ (· = (Worker 0)) ) := do
+  (ls:  (List Nat) @ (· = W0))
+  : Choreo (· ≠ Master) c ((List Nat)  @ (· = W0) ) := do
 
   let chunks        <- scatterList ls
   let sorted_chunks := (chunks.map sort_serial')
-  gatherList (Worker 0) sorted_chunks merge
+  gatherList W0 sorted_chunks merge
 
 
 instance: ChorMain where
   main _args := do
-    let data <- [(Worker 0), Master]~
+    let data <- [W0, Master]~
       [Master]° locally do
         let n <- CmdInput.readNat (.some "enter the random List length")
         return (<-generate_random_list n)
@@ -60,10 +48,10 @@ instance: ChorMain where
     let sorted <- enclave (· ≠ Master)
       (par_sort data.cast)
 
-    let sorted: (List ℕ)@fun x => x = Worker 0 := sorted.flatten.cast
+    let sorted: (List ℕ)@fun x => x = W0 := sorted.flatten.cast
 
-    let sorted' <- [(Worker 0), Master]~
-      [Worker 0]°
+    let sorted' <- [W0, Master]~
+      [W0]°
         (fun {cen} => return (sorted (by revert cen; simp)))
 
 

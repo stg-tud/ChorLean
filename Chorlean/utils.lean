@@ -447,32 +447,24 @@ def longest_string: List String -> Nat
 
 
 -- returns shortend version of reprString after the dot
-def reprName' (v:α) [Repr α]: String :=
-  let rs := reprStr v
+def reprName' (v:α) [ToString α]: String :=
+  let rs := toString v
   (rs.dropWhile (fun x => x != '.')).drop 1
 
-def FinEnum.max_name_len [FinEnum α] [Repr α]: Nat :=
-  longest_string ((FinEnum.toList α).map (fun x => reprName' x))
-
 -- reprName and padding every string to the maximum length string length
-def reprName (v:α) [Repr α] [FinEnum α]: String :=
+def reprName (v:α) [ToString α] [FinEnum α]: String :=
   let rn := reprName' v
   let longest := longest_string ((FinEnum.toList α).map (fun x => reprName' x))
   let padded := rn ++ (repeat_string " " (longest - rn.length))
   padded
 
 
-def FinEnum.ofString? (s:String) [FinEnum α][Repr α]:  Option α := do
-  for e in (FinEnum.toList α) do
-    if (reprName' e == s) then
-      return e
-  Option.none
 
-def FinEnum.ofString! (s:String) [FinEnum α][Repr α] [Inhabited α]:  α :=
-  let opt := FinEnum.ofString? s
-  match opt with
-  | some v => v
-  | none => Inhabited.default
+-- def FinEnum.ofString! (s:String) [FinEnum α][ToString α] [Inhabited α]:  α :=
+--   let opt := FinEnum.ofString? s
+--   match opt with
+--   | some v => v
+--   | none => Inhabited.default
 
 
 

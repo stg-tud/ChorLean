@@ -1,6 +1,4 @@
 import Mathlib.Data.List.Sigma
-import Mathlib.Data.Fintype.Basic
-import Mathlib.Data.Finset.Card
 import Chorlean.utils
 import Chorlean.Free
 import Batteries.Data.Array
@@ -88,11 +86,6 @@ def Located.wrap {p: δ -> Prop} (v:α) [Decidable (p ep)]: α @ p :=
     else
       by contradiction
 
--- unwrapping a located value by a proof of p for the endpoint.
--- function can be omitted but makes the intent more clear in code
-abbrev Located.unwrap' {p: δ -> Prop} (census: p ep): (Located p α) -> α
-| gv => gv census
-
 def Located.bind {α β : Type} [Decidable (p (ep))] (x: α @p) (f: α → β @p):  β @p  :=
   if h:(p ep) then
     let v := x h
@@ -114,8 +107,6 @@ instance {p: δ -> Prop} [Decidable (p ep)]: Monad (Located p) where
   map := Located.map
 
 
-
-
 def Faceted.map (f: α -> β) (x: Faceted α): Faceted β := f ((x ep) rfl)
 
 instance: Monad Faceted where
@@ -124,13 +115,10 @@ instance: Monad Faceted where
   map := Faceted.map
 
 
-
-
-
 notation:max a "+++" b => Located.combine a b
 
 def Located.owners  {p: δ -> Prop} [∀ (x:δ), Decidable (p x)]: Located p α -> List δ :=
-  fun _ => (FinEnum.toList δ).filter p
+  fun _ => (Fin.enumerate N).filter p
 
 
 abbrev Located.flatten (v: Located p (Located q α)) : Located (fun x => p x ∧ q x) α  :=
@@ -158,7 +146,6 @@ instance [ToString μ] {p: δ -> Prop} [Decidable (p ep)]: ToString (μ @ p) whe
 
 def Located.cast {p p': δ -> Prop}  (gv:α @ p') (impl: {x:δ}-> (p x -> p' x) := by decide): (α @ p) :=
   fun c => gv (impl c)
-
 
 def Located.unwrap {p p': δ -> Prop} {cen: p ep} (gv:α @ p') (impl: {x:δ}-> (p x -> p' x) := by decide): α :=
   gv (impl cen)
@@ -194,9 +181,9 @@ def init_receiving_channel  (receiver: δ) (addr: Address):  IO (Socket @ (·=re
 def init_channel (sender receiver: δ) (addr: Address):  IO (Channel sender receiver) := do
 
   if(cfg.print_init_sockets ∧ sender = ep) then
-    IO.println (s!"<- {reprName receiver} <-".dye Color.White Color.Purple)
+    IO.println (s!"<- {Role.name receiver} <-".dye Color.White Color.Purple)
   if(cfg.print_init_sockets ∧ receiver = ep) then
-    IO.println (s!"-> {reprName sender} ->".dye Color.White Color.Blue)
+    IO.println (s!"-> {Role.name sender} ->".dye Color.White Color.Blue)
   let recv_sock ← init_receiving_channel receiver addr
   let send_sock ← init_sending_channel sender addr
   return ⟨recv_sock, send_sock⟩
@@ -212,7 +199,7 @@ def Network.getChannel (net: Network) (k:δ×δ) (ne: k.1 ≠ k.2) (adj: Role.ad
 
 -- calculates unique addresses for location pairs with ascending port numbers, starting at start_port
 def default_adress (k:δ × δ) (start_port: Nat := 2222):  Address :=
-  let port: Nat := start_port + (FinEnum.equiv k.1) * (FinEnum.card δ) + (FinEnum.equiv k.2)
+  let port: Nat := start_port + k.1 * (Role.N) + k.2
   .v4  (.mk 127 0 0 1) port.toUInt16
 
 -- connects all nodes according to the [Arch] instance by TCP.
@@ -220,7 +207,7 @@ def default_adress (k:δ × δ) (start_port: Nat := 2222):  Address :=
 def init_network (as:  δ×δ -> Address := default_adress)
   [∀ (a b: δ), (ne: a≠b) -> Decidable (Role.adj a b ne)]
   : IO Network := do
-  let filtered := (FinEnum.toList (δ×δ)).filter (fun k => k.1 ≠ k.2 ∧ ((ne: k.1 ≠ k.2) -> Role.adj k.1 k.2 ne))
+  let filtered := ((Fin.enumerate N).product (Fin.enumerate N)).filter (fun k => k.1 ≠ k.2 ∧ ((ne: k.1 ≠ k.2) -> Role.adj k.1 k.2 ne))
 
   let progs: List (Σ (k: (δ×δ)), Address)  := filtered.map (fun k => ⟨k, as k⟩ )
   let channels_prog: IO (List (Σ (k: δ×δ), Channel k.1 k.2)):= progs.mapM (fun x => do
@@ -230,7 +217,7 @@ def init_network (as:  δ×δ -> Address := default_adress)
   let cs ← channels_prog
 
   if(cfg.print_init_sockets) then
-    let padding := (FinEnum.max_name_len (α:= δ)) * 2 + 19
+    let padding := max_name_len * 2 + 19
     IO.println ((repeat_string "-" padding) ++ "\n")
   return {
             channels := cs
@@ -249,7 +236,7 @@ instance NetEPP (net: Network): MonadLiftT NetEff IO where
     let ch := net.getChannel ⟨ep, r⟩ p q
     let sock := ch.send_sock (by simp)
     if cfg.print_net_msgs then
-      let send_text := s!"<- {reprName r} <-".dyeBack Color.Purple
+      let send_text := s!"<- {Role.name r} <-".dyeBack Color.Purple
       IO.println s!"{send_text} {Serialize.pretty m}"
     sock.send_val2 m (cfg:=cfg)
 
@@ -260,7 +247,7 @@ instance NetEPP (net: Network): MonadLiftT NetEff IO where
 
     let res ← sock.recv_val2
     if cfg.print_net_msgs then
-      let recv_text := s!"-> {reprName s} ->".dyeBack Color.Blue
+      let recv_text := s!"-> {Role.name s} ->".dyeBack Color.Blue
       IO.println s!"{recv_text} {Serialize.pretty res}"
     return res
 
@@ -343,7 +330,7 @@ def Choreo.epp': (Choreo p c α) → Free (LocalM) α
 
     let v := (v (cast (congrArg q (id (Eq.symm h1))) owns))
 
-    for x in (FinEnum.toList δ) do
+    for x in (Fin.enumerate N) do
       if h3: ¬(q x) ∧ (p x) ∧ (ep ≠ x) then
         NetEff.send x h3.right.right (by simp [h1]; exact (adj x h3.right.left h3.left
           (by simp [h1.symm, h3.right.right]))) v
@@ -383,16 +370,14 @@ broadcasts a value from one location to all other locations
 def bcast {μ:Type} [Serialize μ] [∀ x, Decidable (p x)]
   [∀ (x:δ), Decidable (q x)]
   (loc: δ)
-  (gv: μ @ q)
+  (msg: μ @ q)
   (adj:  ∀ (l':δ), p l' -> ¬(q l') -> (ne: loc ≠ l') -> (Role.adj loc l' ne) := by decide)
   (ex: p loc := by decide)
   (owns: q loc := by decide)
   :
   Choreo p c μ
   :=
-  Choreo.Broadcast loc gv adj ex owns (fun x => Choreo.Return x)
-
-
+  Choreo.Broadcast loc msg adj ex owns (fun x => Choreo.Return x)
 
 /--
 embedding a choreography containing stricly less roles
@@ -407,13 +392,33 @@ def enclave
   Choreo.Enclave (fun _ => subChor) imp (fun x => Choreo.Return x)
 
 
+def locally'
+  (loc: δ)
+  (prog: IO α)
+  (alone: (∀ x, p x -> loc = x) := by decide)
+  :
+  Choreo p c α
+  := do
+  Choreo.Locally loc prog alone (fun x => Choreo.Return x)
+
+def locally
+  {p: δ -> Prop}
+  {c: p ep}
+  [∀ x, Decidable (p x)]
+  (prog: IO α)
+  (ex: p ep := by trivial)
+  (alone: (∀ x, p x -> (((Fin.enumerate N).filter p)[0]'sorry) = x) := by decide)
+:Choreo p c α
+  := do
+  let loc := ((Fin.enumerate N).filter p)[0]'(by sorry)
+  Choreo.Locally loc prog alone (fun x => Choreo.Return x)
 
 -- returns a list of locations that fullfill 2 predicates, such that the locations are adjecent to every other location that fullills p but not q
 -- this list consists of every location able to broadcast a value a@q for census p
 abbrev possible_caster (p q : δ -> Prop)
   [∀ x, Decidable (p x)]
   [∀ x, Decidable (q x)]
-  : List δ:= ((FinEnum.toList δ).filter
+  : List δ := ((Fin.enumerate N).filter
   (fun x => q x ∧ p x ∧  ∀ (l':δ), p l' -> ¬(q l') -> (ne: x ≠ l') -> (Role.adj x l' ne)))
 
 
@@ -423,12 +428,12 @@ Variant of bcast where the broadcaster is infereed automatically.
 def bcast'   {μ:Type} [Serialize μ]
   [∀ x, Decidable (p x)]
   [∀ (x:δ), Decidable (q x)]
-  (gv: μ @ q)
+  (msg: μ @ q)
   (castable: (possible_caster p q).length > 0 := by decide)
   :
   Choreo p c μ
   :=
-  Choreo.Broadcast ((possible_caster p q)[0]'castable) gv
+  Choreo.Broadcast ((possible_caster p q)[0]'castable) msg
   (
     have qq: ((possible_caster p q)[0]'castable) ∈ (possible_caster p q) := by exact List.getElem_mem (possible_caster p q) 0 castable
     have q := List.of_mem_filter qq
@@ -461,26 +466,9 @@ def enclave_bcast{μ:Type} [Serialize μ]
   let temp <- enclave p' subChor imp
   bcast' temp (castable := castable)
 
-def locally'
-  (loc: δ)
-  (prog: IO α)
-  (alone: (∀ x, p x -> loc = x) := by decide)
-  :
-  Choreo p c α
-  := do
-  Choreo.Locally loc prog alone (fun x => Choreo.Return x)
+notation:max  a "~" b  => enclave (fun x => x ∈ a) b
+notation:max  a "°" b  => enclave_bcast (fun x => x ∈ a) b
 
-def locally
-  {p: δ -> Prop}
-  {c: p ep}
-  [∀ x, Decidable (p x)]
-  (prog: IO α)
-  (alone: (∀ x, p x -> (((FinEnum.toList δ).filter p)[0]'sorry) = x) := by decide)
-  (ex: p ep := by trivial)
-:Choreo p c α
-  := do
-  let loc := ((FinEnum.toList δ).filter p)[0]'(by simp [FinEnum.toList, List.filter, ex]; sorry)
-  Choreo.Locally loc prog alone (fun x => Choreo.Return x)
 
 def par
   [∀ (x:δ), Decidable (p x)]
@@ -489,7 +477,7 @@ def par
   Choreo p c (Faceted α)
   := do
 
-  let filtered := (FinEnum.toList δ).filter p
+  let filtered := (Fin.enumerate N).filter p
 
   let temp: List ((r:δ) ×  (α @ (· = r))) <- filtered.mapM (fun x => do
     let res <- enclave (· = x) (fun {c'} => locally' x (prog ⟨x, c'.symm⟩) (fun _ a => id (Eq.symm a))) (by simp [List.filter, List.of_mem_filter]; sorry)
@@ -517,47 +505,6 @@ def com  [Serialize μ] [∀ x, Decidable (p x)]
     return res'
   )
 
-/--
--- gathers all values of a faceted value in a single location
--/
-def gather'  [Serialize μ]  {p q: δ -> Prop} {c: p ep} [∀ x, Decidable (p x)]  [∀ x, Decidable (q x)]
-  (loc: δ)
-  (data: (Faceted μ) @ q)
-  (ex: p loc := by decide)
-  (adj:  ∀ (l':δ), p l' -> (ne: l' ≠ loc) -> (Role.adj l' loc ne) := by decide)
-  :
-  Choreo p c (({l // p l ∧ q l} -> μ) @ (· = loc))
-  := do
-
-    let filtered := (FinEnum.toList δ).filter (fun x => p x ∧ q x)
-
-    let temp: List ({l // p l ∧ q l} × (μ @ (· = loc))) <- filtered.mapM (fun x => do
-      let xx := List.filter_true filtered
-
-      have qq: p x := by sorry
-      have qq': q x := by sorry
-
-      let v <- com
-        (sender:=x)
-        (receiver:=loc)
-        (ex_sender := qq)
-        (ex_receiver:= ex)
-        (adj := fun ne => adj x qq ne)
-        (
-          fun {cen'} =>
-          let temp_res: (Faceted μ) @ (· = x) := fun {cen} => (data (by simp [cen]; exact qq'))
-          let res := Faceted.exclusive temp_res
-          return Faceted.exclusive temp_res cen'
-        )
-
-      return ⟨⟨x, qq, qq'⟩, v.cast (impl := fun a => Or.inr a)⟩
-    )
-    return fun a b => ((temp.lookup b).get (sorry)) a
-
-
-/--
--- gathers all values of a `Faceted` at a single location
--/
 def gather  [Serialize μ]  {p: δ -> Prop} {c: p ep} [∀ x, Decidable (p x)]
   (loc: δ)
   (data: Faceted μ)
@@ -567,7 +514,7 @@ def gather  [Serialize μ]  {p: δ -> Prop} {c: p ep} [∀ x, Decidable (p x)]
   Choreo p c (({l // p l} -> μ) @ (· = loc))
   := do
     let mut vals: List ({l // p l} × (μ @ (· = loc))) := []
-    let filtered := (FinEnum.toList δ).filter p
+    let filtered := (Fin.enumerate N).filter p
 
     let temp: List ({l // p l} × (μ @ (· = loc))) <- filtered.mapM (fun x => do
       let xx := List.filter_true vals
@@ -606,15 +553,12 @@ def gatherList  [Serialize μ]  {p: δ -> Prop} {c: p ep} [∀ x, Decidable (p x
   enclave (· = loc) ( fun {cen} =>
     locally' loc (do
     let mut res: List μ := []
-    for x in (FinEnum.toList δ) do
+    for x in (Fin.enumerate N) do
       if h: p x then
         res := merge res ((temp cen) ⟨x, h⟩)
     return res
     ) (by simp)
   ) (by simp; exact ex)
-
-notation:max  a "~" b  => enclave (fun x => x ∈ a) b
-notation:max  a "°" b  => enclave_bcast (fun x => x ∈ a) b
 
 /--
 broadcast different role-dependent values of the same type
@@ -630,7 +574,7 @@ def scatter  [Serialize μ]  {p: δ -> Prop} {c: p ep} [∀ x, Decidable (p x)]
 
   let mut lst: List (Σ (owner:{l // p l}), (μ @ (· = owner.val))) := []
 
-  for x in (FinEnum.toList δ) do
+  for x in (Fin.enumerate N) do
     if h: (p x) then
 
       let lv <- com loc x (fun {cen} =>
@@ -646,10 +590,9 @@ def scatter  [Serialize μ]  {p: δ -> Prop} {c: p ep} [∀ x, Decidable (p x)]
 
 
 
-def chunk_size  (l: δ) (data_size: Nat) :=
-  let id := FinEnum.equiv l
-  let res := data_size % (FinEnum.card δ)
-  if id < res then
+def chunk_size  (r: δ) (data_size: Nat) :=
+  let res := data_size % N
+  if r < res then
     res + 1
   else
     res
@@ -670,13 +613,12 @@ def scatterList  [Serialize μ]  {p: δ -> Prop} {c: p ep} [∀ x, Decidable (p 
   let data':  {l // p l} -> (List μ) @ (· = loc) :=
     fun x y =>
 
-      let id := FinEnum.equiv x
       let chunk_size := (data y).length / N
       let rest := (data y).length % N
-      let chunk_start := (id.val * chunk_size) + (min rest id.val)
+      let chunk_start := (x * chunk_size) + (min rest x)
 
       let chunk_size :=
-        if id < rest then
+        if x < rest then
           chunk_size + 1
         else
           chunk_size
@@ -692,7 +634,7 @@ def gatherAll  [Serialize μ]  {p: δ -> Prop} {c: p ep} [∀ x, Decidable (p x)
   :
   Choreo p c ({l // p l}-> μ)
   := do
-  let filtered := (FinEnum.toList δ).filter p
+  let filtered := (Fin.enumerate N).filter p
 
   let temp: List ({l // p l} × μ) <- filtered.mapM (fun x => do
 
@@ -707,7 +649,7 @@ def gatherAll  [Serialize μ]  {p: δ -> Prop} {c: p ep} [∀ x, Decidable (p x)
 -- maps strings to values of δ.
 -- this works by Repr wich uses the actual declaration names of a type
 private def endpointFromString (s: String): IO (Endpoint) :=
-  let ep_opt: Option δ := FinEnum.ofString? s
+  let ep_opt: Option δ := Role.ofString? s
 
   if h: (ep_opt.isSome) then
     let ep := ep_opt.get h
@@ -746,12 +688,12 @@ def CHOR_ENTRYPOINT
         ++ "\n"
       )
       IO.println s!"{"init network".dyeFont Color.Yellow}"
-      IO.println (s!"<<<{reprName ep}>>>".dye Color.Black Color.White)
+      IO.println (s!"<<<{Role.name ep}>>>".dye Color.Black Color.White)
 
     let net <- init_network (cfg:=cfg)
 
     IO.println s!"{"start choreo".dyeFont Color.Yellow}"
-    IO.println ((s!"<<<{reprName ep}>>>".dye Color.Black Color.White) ++ "\n")
+    IO.println ((s!"<<<{Role.name ep}>>>".dye Color.Black Color.White) ++ "\n")
     let _nepp := NetEPP net (cfg:=cfg)
     let _epp := EPP (p:= fun _ => true) net (cfg:=cfg)
 

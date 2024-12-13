@@ -9,23 +9,21 @@ import Chorlean.Effects
 -- example from: Choral: Object-Oriented Choreographic Programming
 -- 3.1 Distributed authentication
 
-inductive Location
-| client | service | IP
-deriving Repr, Fintype, DecidableEq, Inhabited
-
-instance : FinEnum Location :=
-  FinEnum.ofEquiv _ (proxy_equiv% Location).symm
-
-open Location
 open Lean Json ToJson FromJson Effect CmdInput Log
 
 instance: Role where
-  δ := Location
+  N := 3
   adj
-    | client, IP, _ => true
-    | client, service, _ => false
-    | service, _, _ => false
-    | IP, _, _ => true
+    | 0, 2, _ => true
+    | 0, 1, _ => false
+    | 1, _, _ => false
+    | 2, _, _ => true
+  name | 0 => "client" | 1 => "service" | 2 => "IP"
+
+abbrev client: Fin 3 := 0
+abbrev service: Fin 3 := 1
+abbrev IP: Fin 3 := 2
+
 
 variable [Endpoint]
 variable [MonadLiftT NetEff IO]
@@ -55,8 +53,8 @@ def add_salt (s:String): String := "salty " ++ s
 def authenticate (creds: Credentials @ (·=client))
   : Choreo (· ∈ [client, IP]) cen ((Option Token)):= do
 
-  let valid:Bool <-   [client, IP]°  do
-
+  let valid:Bool <-  [client, IP]°  do
+    let xx <- [client, IP]~ ([IP]° return 3)
     let username <-  [client]°  (fun {cen} => return (creds (by revert cen; simp)).username)
     let salt ←       [IP]°      (             return add_salt (username))
     let hash ←       [client]°  (fun {cen} => return calcHash salt ((creds (by revert cen; simp)).password))
@@ -69,17 +67,17 @@ def authenticate (creds: Credentials @ (·=client))
     )
     return token_opt
   else
-    par fun _id => Log.warning "Authentication failed"
+    par fun _id => Log.warning s!"Authentication failed "
     return none
 
 
 instance: ChorMain where
   main _args := do
 
-  let creds <- [client]~ locally prompt_credentials
-  let res <-  [client, IP]~ authenticate creds.cast
-  let res' <- bcast' res
-  return Faceted.of 0
+    let creds <- [client]~ locally prompt_credentials
+    let res <-  [client, IP]~ authenticate creds.cast
+    let res' <- bcast' res
+    return Faceted.of 0
 
 
 def main := CHOR_ENTRYPOINT

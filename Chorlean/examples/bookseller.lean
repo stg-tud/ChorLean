@@ -5,25 +5,13 @@ import Mathlib.Tactic.DeriveFintype
 
 open Effect
 
-inductive Location
-| buyer | seller
-deriving Repr, Fintype
-
-instance : FinEnum Location :=
-  FinEnum.ofEquiv _ (proxy_equiv% Location).symm
-
-open Location
-
-
-
 def get_budget := do
   IO.println "enter your budget"
   return (←IO.getLine).toNat!
+
 def get_title := do
     IO.println "enter your title"
     return (←IO.getLine)
-
-
 
 def lookup_price title := do
     IO.println "looked up title"
@@ -35,18 +23,20 @@ def deliveryDate := do
 
 
 instance: Role where
-  δ := Location
+  N := 2
+  name | 0 => "buyer" | 1 => "seller"
+
+def buyer: Fin 2 := 0
+def seller: Fin 2 := 1
 
 variable [Endpoint]
 variable [MonadLiftT NetEff IO]
 
 def budget:Nat @ (· = buyer) := Located.wrap 150
 
-
 def books: Choreo all c String:= do
 
   let title <- [buyer]° locally get_title
-
   let price <- [seller]° (do
     return if title == "Faust" then 100 else 200
   )
@@ -61,13 +51,10 @@ def books: Choreo all c String:= do
   else
     return "never"
 
-
-variable (p q : Prop)
-
 instance: ChorMain where
   main _ := do
     let res <- books
-    [buyer]~ locally $ IO.println s!"delivery date: {res}"
+    [buyer]~ locally (IO.println s!"delivery date: {res}")
     return Faceted.of 0
 
 

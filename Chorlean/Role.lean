@@ -1,5 +1,5 @@
-import Mathlib.Data.FinEnum
 import Chorlean.Free
+import Chorlean.utils
 
 class Signature (ops: Type -> Type) where
   interpretation: ops α -> IO α
@@ -8,20 +8,31 @@ instance [Signature ops]: MonadLiftT ops IO where
   monadLift := Signature.interpretation
 
 class Role where
-  -- Role datatype. Each value represents one distinct role in a choreography
-  δ: Type
+  N: Nat
+  adj: (s r: (Fin N)) → (s ≠ r) -> Bool := fun _ _ _ => True
 
-  [deq_inst: DecidableEq δ]
+  name: Fin N -> String
+  unique_names: ∀ a b: Fin N, name a = name b -> a = b := by decide
 
-  adj: (s r:δ) → (s ≠ r) -> Bool := fun _ _ _ => True
+def Fin.enumerate: (n:Nat) -> List (Fin n)
+| 0 => []
+| i + 1 =>
+  let temp: List (Fin (i+1)) := enumerate i
+  temp ++ [⟨i, Nat.lt_add_one i⟩]
 
-  [fe_inst : FinEnum δ]
-  [repr_inst: Repr δ]
+theorem enum_complete: ∀ (n:Nat) (f:Fin n), f ∈ Fin.enumerate n := by sorry
+
+
 
 variable [Role]
-abbrev δ := Role.δ
+abbrev N := Role.N
+abbrev δ := Fin N
 
+def max_name_len [Role]: Nat :=
+  longest_string ((Fin.enumerate N).map (fun x => Role.name x))
 
-instance: DecidableEq (Role.δ) := Role.deq_inst
-instance: FinEnum (Role.δ) := Role.fe_inst
-instance: Repr (Role.δ) := Role.repr_inst
+def Role.ofString? (s:String) [Role]:  Option δ := do
+  for e in (FinEnum.toList δ) do
+    if (Role.name e == s) then
+      return e
+  Option.none
