@@ -54,7 +54,6 @@ def authenticate (creds: Credentials @ (·=client))
   : Choreo (· ∈ [client, IP]) cen ((Option Token)):= do
 
   let valid:Bool <-  [client, IP]°  do
-    let xx <- [client, IP]~ ([IP]° return 3)
     let username <-  [client]°  (fun {cen} => return (creds (by revert cen; simp)).username)
     let salt ←       [IP]°      (             return add_salt (username))
     let hash ←       [client]°  (fun {cen} => return calcHash salt ((creds (by revert cen; simp)).password))
@@ -76,7 +75,7 @@ instance: ChorMain where
 
     let creds <- [client]~ locally prompt_credentials
     let res <-  [client, IP]~ authenticate creds.cast
-    let res' <- bcast' res
+    let res' <- bcast res
     return Faceted.of 0
 
 
