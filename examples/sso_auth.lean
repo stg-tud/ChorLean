@@ -13,17 +13,12 @@ open Lean Json ToJson FromJson Effect CmdInput Log
 
 instance: Role where
   N := 3
-  adj
-    | 0, 2, _ => true
-    | 0, 1, _ => false
-    | 1, _, _ => false
-    | 2, _, _ => true
   name | 0 => "client" | 1 => "service" | 2 => "IP"
 
-abbrev client: Fin 3 := 0
-abbrev service: Fin 3 := 1
-abbrev IP: Fin 3 := 2
 
+abbrev client: δ := 0
+abbrev service: δ := 1
+abbrev IP: δ := 2
 
 variable [Endpoint]
 variable [MonadLiftT NetEff IO]
@@ -49,33 +44,38 @@ def calcHash (salt: String) (pwd: String): String := (salt ++ pwd).dropRight 1
 
 def add_salt (s:String): String := "salty " ++ s
 
+def authenticate (creds: Credentials @ [client])
+  : Choreo [client, IP] cen ((Option Token)):= do
 
-def authenticate (creds: Credentials @ (·=client))
-  : Choreo (· ∈ [client, IP]) cen ((Option Token)):= do
+  let valid <- [client, IP]°°  do
 
-  let valid:Bool <-  [client, IP]°  do
-    let username <-  [client]°  (fun {cen} => return (creds (by revert cen; simp)).username)
-    let salt ←       [IP]°      (             return add_salt (username))
-    let hash ←       [client]°  (fun {cen} => return calcHash salt ((creds (by revert cen; simp)).password))
-    [IP]° locally (check_hash hash)
+    let username <-  client°  (return (creds.un).username)
+    let salt ←       IP°      (return add_salt username)
+    let hash ←       client°  (return calcHash salt ((creds.un).password))
+    IP° (check_hash hash)
 
   if valid then
-    let token_opt ← [IP]°  locally (do
+    let token_opt ← IP° (do
       Log.info "AUTHENTICATION SUCCESS"
       return some (<- createToken)
     )
     return token_opt
   else
-    par fun _id => Log.warning s!"Authentication failed "
     return none
 
 
 instance: ChorMain where
   main _args := do
 
-    let creds <- [client]~ locally prompt_credentials
-    let res <-  [client, IP]~ authenticate creds.cast
+    par $ IO.println s!"hello from {Role.name rid}"
+
+    let creds <- client~ locally prompt_credentials
+
+    let res <-  [client, IP]~~ authenticate creds.cast
     let res' <- bcast res
+
+
+    par $ IO.println s!"by with token {res'}"
     return Faceted.of 0
 
 

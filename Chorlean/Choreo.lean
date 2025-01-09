@@ -3,52 +3,65 @@ import Chorlean.utils
 import Chorlean.Free
 import Batteries.Data.Array
 import Chorlean.Role
+import Chorlean.Effects
 
 variable [Role]
 variable {cfg:dbg_cfg}
 
--- A faceted Unit type can trivially be unfaceted for users since there is only a singular value
-instance: Coe ( Unit) Unit where
-  coe _ := ()
-
 variable [Role]
 
--- Endpoint class. used to propagate the endpoint through the library
+/--
+Endpoint class. used to propagate the endpoint through the library.
+Kept private from library users and only accessible throug the RID class
+-/
 class Endpoint where
   private mk::
   private endpoint: δ
 
 variable [Endpoint]
 private abbrev ep: δ := Endpoint.endpoint
-noncomputable abbrev ep' := ep
+noncomputable abbrev rid'' := ep
+
+
+/--
+Role Identity class.
+provides access to the Endpoint class to the user, by an role that is equal to the endpoint identity
+-/
+class RID where
+  id: δ
+  is_ep: id = ep
+
+/--
+Role IDentity - the role identity, from which perspective the choreography is being run
+-/
+abbrev rid [RID] := RID.id
 
 /--
 Type for located variables.
 It is defined by a proposition over a δ Location
 and maps a proof of this proposition for the endpoint to a value
 -/
-def Located (p: δ -> Prop) (α: Type) := (p ep) -> α
+def Located (p: List δ) (α: Type) := (ep ∈ p) -> α
 
 -- Notation for located values
 notation:max a "@" p  => Located p a
 
+
 /-- `Faceted`  maps locations to a value that is only located at that location-/
-def Faceted α :=  (l:δ) -> α @ (· = l)
+def Faceted α :=  (l:δ) -> α @ [l]
 
 /-- wraps values into `Faceted`.-/
-def Faceted.of (v:α): Faceted α := fun _ _ => v
+def Faceted.of (v: δ -> α): Faceted α := fun x _ => v x
 
 /-- Coe instance to implicetely facet types -/
 instance: Coe α (Faceted α)  where
-  coe := Faceted.of
+  coe x := Faceted.of (fun _ => x)
 
-/-- function that maps everything to true - "everywhere"-/
-notation:max "all"  => (fun _ => true)
-/-- function that maps everything to false - "nowhere"-/
-notation:max "nobody"  => (fun _ => false)
+
+abbrev all := Role.list
 
 -- Coe instance to implicetely unpack Located
-instance (p: δ -> Prop) (cen: p ep): CoeOut (α @ p) α where
+instance (p: List δ) (cen: ep ∈ p): CoeOut (α @ p) α where
   coe x := x cen
 
 /-- coerces `Located` Unit types into Unit-/
@@ -63,88 +76,92 @@ instance: Coe Unit (Located o Unit) where
 instance: Coe (Faceted Unit) Unit where
   coe _ := ()
 
+/-- coerces Unit types into `Faceted` Unit -/
+instance: Coe Unit (Faceted Unit)  where
+  coe _ := ()
+
 /-- wraps into a `Located` value by deciding over the predicate with access to the endpoint-/
-def Located.wrap {p: δ -> Prop} (v:α) [Decidable (p ep)]: α @ p :=
+def Located.wrap {p: List δ} (v:α): α @ p :=
   fun _x =>
-    if h:(p ep) then
+    if h:(ep ∈ p) then
       v
     else
       by contradiction
 
-def Located.bind {α β : Type} [Decidable (p (ep))] (x: α @p) (f: α → β @p):  β @p  :=
-  if h:(p ep) then
+def Located.bind {α β : Type} (x: α @p) (f: α → β @p):  β @p  :=
+  if h:(ep ∈ p) then
     let v := x h
     f v
   else
     fun y => by contradiction
 
-def Located.map {p: δ -> Prop} [Decidable (p ep)] (f: α -> β) (x: α @ p): β @ p :=
- if h:(p ep) then
+def Located.map {p: List δ}(f: α -> β) (x: α @ p): β @ p :=
+ if h:(ep ∈ p) then
       let v := x h
       fun _ => f v
     else
       fun y => by contradiction
 
-instance {p: δ -> Prop} [Decidable (p ep)]: Monad (Located p) where
+instance: Monad (Located p) where
   pure x := Located.wrap x
   bind := Located.bind
   map := Located.map
 
-def Faceted.map (f: α -> β) (x: Faceted α): Faceted β := f ((x ep) rfl)
+def Faceted.map (f: α -> β) (x: Faceted α): Faceted β := f ((x ep) (by simp))
 
 instance: Monad Faceted where
-  pure := Faceted.of
-  bind x f := f ((x ep) rfl)
+  pure x := Faceted.of (fun _ => x)
+  bind x f := f ((x ep) (by simp))
   map := Faceted.map
 
-def Located.owners  {p: δ -> Prop} [∀ (x:δ), Decidable (p x)]: Located p α -> List δ :=
-  fun _ => (Fin.enumerate N).filter p
+def Located.owners  {p: List δ}: Located p α -> List δ := fun _ => p.dedup
 
 /-- removes one layer of a nested `Located`-/
-def Located.flatten (v: Located p (Located q α)) : Located (fun x => p x ∧ q x) α  :=
-  fun pq => v (And.left pq) (And.right pq)
+def Located.flatten (v: Located p (Located q α)) : Located (p.inter q) α  :=
+  fun pq => v (List.mem_of_mem_filter pq) (List.mem_of_mem_inter_right pq)
 
 /-- abbreviation for looking at a `Faceted` from one singular role-/
-abbrev Faceted.exclusive {loc:δ} (lf: (Faceted α) @ (· =loc)): (α @ (· =loc)) :=
+abbrev Faceted.exclusive {loc:δ} (lf: (Faceted α) @ [loc]): (α @ [loc]) :=
   fun cen => (lf cen) loc cen
 
 /-- ToString instance for distributed values with an ToString instance on the value type.
     "Empty", if the value is not present on the machine-/
-instance [ToString μ] {p: δ -> Prop} [Decidable (p ep)]: ToString (μ @ p) where
+instance [ToString μ]: ToString (μ @ p) where
   toString x :=
-    if h:(p ep) then
+    if h:(ep ∈ p) then
       let val := x h
       toString val
     else
       "Empty"
 
 /-- maps `Located` into another `Located` by evidence that (p x -> p' x).-/
-def Located.cast {p p': δ -> Prop}  (gv:α @ p') (impl: {x:δ}-> (p x -> p' x) := by decide): (α @ p) :=
+def Located.cast   (gv:α @ p') (impl: {x:δ}-> (x ∈ p -> x ∈ p') := by decide): (α @ p) :=
   fun c => gv (impl c)
+
 
 /--Signature for Networked programs.
    allows for sending and receiving messages.
    adheres to adjacency of roles and prohibits self referencing-/
 inductive NetEff: Type → Type 1
-| send {μ: Type} [Serialize μ] : (r:δ) → (p:ep ≠ r) -> (Role.adj ep r p) → μ → NetEff Unit
-| recv : (s:δ) → (p:ep ≠ s) -> (Role.adj s ep p.symm) →  (μ: Type) → [Serialize μ] → NetEff μ
+| send {μ: Type} [Serialize μ] : (r:δ) → (p:ep ≠ r) → μ → NetEff Unit
+| recv : (s:δ) → (p:ep ≠ s) →  (μ: Type) → [Serialize μ] → NetEff μ
 
 /-- Channel structure that distributes two sockets over a sender and receiver end-/
 structure Channel (sender receiver: δ) where
-  recv_sock: Socket @ (·=receiver)
-  send_sock: Socket @ (·=sender)
+  recv_sock: Socket @ [receiver]
+  send_sock: Socket @ [sender]
 
 /--connects a sender role to an adress-/
-def init_sending_channel (sender :δ) (addr: Address):  IO (Socket @ (·=sender)) := do
-  if h:(ep = sender) then
+def init_sending_channel (sender :δ) (addr: Address):  IO (Socket @ [sender]) := do
+  if h:(ep ∈ [sender]) then
     let sock ← addr.connect_to
     return (fun _ => sock)
   else
     return (fun x => by contradiction)
 
 /--listens for a adress-/
-def init_receiving_channel  (receiver: δ) (addr: Address):  IO (Socket @ (·=receiver)) := do
-  if h:(ep = receiver) then
+def init_receiving_channel  (receiver: δ) (addr: Address):  IO (Socket @ [receiver]) := do
+  if h:(ep ∈ [receiver]) then
     let sock ← addr.listen_on
     return (Located.wrap sock)
   else
@@ -164,11 +181,11 @@ def init_channel (sender receiver: δ) (addr: Address):  IO (Channel sender rece
 /-- distributed datastructure containing all TCP Sockets-/
 structure Network where
   channels: List (Σ (id: δ×δ), Channel id.1 id.2)
-  complete: ∀ (k : δ×δ), (ne:k.1 ≠ k.2) → (Role.adj k.1 k.2 ne) → (channels.dlookup k).isSome
+  complete: ∀ (k : δ×δ), (ne:k.1 ≠ k.2) → (channels.dlookup k).isSome
 
 /-- helper function to look up channels -/
-def Network.getChannel (net: Network) (k:δ×δ) (ne: k.1 ≠ k.2) (adj: Role.adj k.1 k.2 ne) : Channel k.1 k.2 :=
-  (net.channels.dlookup k).get (by simp [net.complete, ne, adj])
+def Network.getChannel (net: Network) (k:δ×δ) (ne: k.1 ≠ k.2) : Channel k.1 k.2 :=
+  (net.channels.dlookup k).get (by simp [net.complete, ne])
 
 /-- calculates unique addresses for location pairs with ascending port numbers, starting at start_port-/
 def default_adress (k:δ × δ) (start_port: Nat := 2222):  Address :=
@@ -178,9 +195,8 @@ def default_adress (k:δ × δ) (start_port: Nat := 2222):  Address :=
 /-- connects all nodes according to adjacency by TCP.
     returns a network-/
 def init_network (as:  δ×δ -> Address := default_adress)
-  [∀ (a b: δ), (ne: a≠b) -> Decidable (Role.adj a b ne)]
   : IO Network := do
-  let filtered := ((Fin.enumerate N).product (Fin.enumerate N)).filter (fun k => k.1 ≠ k.2 ∧ ((ne: k.1 ≠ k.2) -> Role.adj k.1 k.2 ne))
+  let filtered := ((Fin.list N).product (Fin.list N)).filter (fun k => k.1 ≠ k.2 ∧ (k.1 ≠ k.2))
 
   let progs: List (Σ (k: (δ×δ)), Address)  := filtered.map (fun k => ⟨k, as k⟩ )
   let channels_prog: IO (List (Σ (k: δ×δ), Channel k.1 k.2)):= progs.mapM (fun x => do
@@ -196,7 +212,7 @@ def init_network (as:  δ×δ -> Address := default_adress)
             channels := cs
             complete := fun k => by
               simp [List.dlookup_isSome, List.keys]
-              intro x y
+              intro x
               sorry -- TODO mightt be complicated to prove... maybe the function should be stated differently
               done
           }
@@ -204,18 +220,18 @@ def init_network (as:  δ×δ -> Address := default_adress)
 /-- lifts NetEff into IO by sending and receiving messeges over the TCP Sockets of Network -/
 instance NetEPP (net: Network): MonadLiftT NetEff IO where
   monadLift x := match x with
-  | NetEff.send r p q m=> do
+  | NetEff.send r q m=> do
     let ep := ep
-    let ch := net.getChannel ⟨ep, r⟩ p q
+    let ch := net.getChannel ⟨ep, r⟩ q
     let sock := ch.send_sock (by simp)
     if cfg.print_net_msgs then
       let send_text := s!"<- {Role.name r} <-".dyeBack Color.Purple
       IO.println s!"{send_text} {Serialize.pretty m}"
     sock.send_val2 m (cfg:=cfg)
 
-  | NetEff.recv s p q μ => do
+  | NetEff.recv s q μ => do
     let ep := ep
-    let c := net.getChannel ⟨s, ep⟩ (Ne.symm p) q
+    let c := net.getChannel ⟨s, ep⟩ (Ne.symm q)
     let sock := c.recv_sock (by simp)
 
     let res ← sock.recv_val2
@@ -223,6 +239,8 @@ instance NetEPP (net: Network): MonadLiftT NetEff IO where
       let recv_text := s!"-> {Role.name s} ->".dyeBack Color.Blue
       IO.println s!"{recv_text} {Serialize.pretty res}"
     return res
+
+variable [MonadLiftT NetEff IO]
 
 /-- auxiliary Effect, coproduct of net_eff and local_eff-/
 @[reducible] def LocalProgramEff := NetEff ⨳ IO
@@ -241,46 +259,43 @@ Choreo is built out of 3 core primitives:
 
 All other functionality builds upon these 3 constructs.
 -/
-inductive Choreo: (p:δ -> Prop) -> (census: p ep) ->  Type → Type 1 where
+inductive Choreo: (p:List δ) -> ep ∈ p ->  Type → Type 1 where
 | Broadcast {μ:Type} [Serialize μ]
-  {q: δ -> Prop}
-  [∀ x, Decidable (p x)]
-  [∀ x, Decidable (q x)]
+
   (loc: δ)
   (msg: μ @ q)
-  (adj:  ∀ (l':δ), p l' -> ¬(q l') -> (ne: loc ≠ l') -> (Role.adj loc l' ne))
-  (ex: p loc)
-  (owns: q loc)
+  (ex: loc ∈ p)
+  (owns: loc ∈ q)
   (next: μ -> Choreo p c α)
   :
   Choreo p c α
 | Locally
-  (loc: δ)
+  [RID]
   (prog: IO β)
-  (alone: (∀ x, p x -> loc = x) := by decide)
+  --(prog: Free (Role.sig rid) β)
   (next: β -> Choreo p c α)
   :
   Choreo p c α
 | Enclave
-  {p': δ -> Prop} [Decidable (p' ep)]
-  (subChor: (c': p' ep) -> Choreo p' c' β)
-  (imp: ∀ x,  p' x -> p x)
-  (next: (β @ p') -> Choreo p c α)
+  (rs: List δ)
+  (subChor: (c': ep ∈ rs) -> Choreo rs c' β)
+  (imp:  subRoles ⊆ p)
+  (next: (β @ rs) -> Choreo p c α)
   :
   Choreo p c α
 | Return
   (v:α):
   Choreo p c α
 
-def Choreo.bind {p: δ -> Prop} {c: p ep} {α β : Type} : Choreo p c α → (α → Choreo p c β) → Choreo p c β
-| Choreo.Locally l prog alone next (α:=α), cont =>
-  Choreo.Locally l prog alone (fun x => Choreo.bind (next x) cont)
+def Choreo.bind  {α β : Type} : Choreo p c α → (α → Choreo p c β) → Choreo p c β
+| Choreo.Locally prog next, cont =>
+  Choreo.Locally prog  (fun x => Choreo.bind (next x) cont)
 
-| Choreo.Broadcast v adj ex ex2 next (loc:=loc) (p:=p), cont =>
-  Choreo.Broadcast loc v adj ex ex2 (fun x => Choreo.bind (next x) cont)
+| Choreo.Broadcast v ex ex2 next (loc:=loc), cont =>
+  Choreo.Broadcast loc v ex ex2 (fun x => Choreo.bind (next x) cont)
 
-| Choreo.Enclave subChor imp next, cont =>
-  Choreo.Enclave subChor imp (fun x => Choreo.bind (next x) cont)
+| Choreo.Enclave subRoles subChor imp next, cont =>
+  Choreo.Enclave subRoles subChor imp (fun x => Choreo.bind (next x) cont)
 
 | Choreo.Return v, cont =>
   (cont v)
@@ -290,30 +305,30 @@ instance: Monad (Choreo p c) where
   bind := Choreo.bind
 
 /-- projects a Chor to a LocalM by adding the neccesarry NetEffects -/
-def Choreo.epp': (Choreo p c α) → Free (LocalM) α
-| Choreo.Locally _ prog _ next => do
-  let res <-prog
+def Choreo.epp': (Choreo p c α) → IO α
+| Choreo.Locally prog next => do
+  have: Signature (Role.sig rid) := by simp [←RID.is_ep.symm]; exact (Role.executable ep)
+  let res <- prog
   (next res).epp'
 
-| Choreo.Broadcast v adj _ex next (loc:=loc) (μ:= μ) (p:=p) (q:=q) (owns := owns) => do
+| Choreo.Broadcast v _ex next (loc:=loc) (μ:= μ) (c:=c) (q:=q) (owns := owns) => do
   if h1:(ep = loc) then
 
-    let v := (v (cast (congrArg q (id (Eq.symm h1))) owns))
+    let v := (v (by simp[h1]; exact owns))
 
-    for x in (Fin.enumerate N) do
-      if h3: ¬(q x) ∧ (p x) ∧ (ep ≠ x) then
-        NetEff.send x h3.right.right (by simp [h1]; exact (adj x h3.right.left h3.left
-          (by simp [h1.symm, h3.right.right]))) v
+    for x in (Fin.list N) do
+      if h3: ¬(x ∈ q) ∧ (x ∈ p) ∧ (ep ≠ x) then
+        NetEff.send x h3.right.right v
     (next v).epp'
-  else if h2:(q ep) then
+  else if h2:(ep ∈ q) then
     let v := v h2
     (next v).epp'
   else
-    let v ← NetEff.recv loc h1 (adj ep c h2 (fun a => h1 a.symm)) μ
+    let v ← NetEff.recv loc h1 μ
     (next v).epp'
 
-| Choreo.Enclave subChor imp next (p' := p') =>
-  if h:(p' ep) then do
+| Choreo.Enclave subRoles subChor imp next  =>
+  if h:(ep ∈ subRoles) then do
     let x := subChor h
     let y <- x.epp'
     (next (fun _ => y)).epp'
@@ -325,184 +340,260 @@ def Choreo.epp': (Choreo p c α) → Free (LocalM) α
 
 /-- lifts Choreo into IO-/
 instance EPP
-  (p: δ -> Prop) {c: p ep}
   (net: Network) : MonadLiftT (Choreo p c) IO where
    monadLift x :=
     let _netlift := NetEPP net (cfg:=cfg)
     (Choreo.epp' x)
 
+/--
+unwraps a located value in the choreo monad, if the present roles are a subset of owners.
+the subset relation is tried to be solved by the trivial tactic by default
+-/
+def Located.un [r:RID] (v: α @ rs) (knows: rid ∈ rs := by simp only [List.mem_singleton]; trivial):α :=
+  (v (by simp [←RID.is_ep]; exact knows))
 
 /--
 broadcasts a value from one location to all other locations
 -/
-def bcast' {μ:Type} [Serialize μ] [∀ x, Decidable (p x)]
-  [∀ (x:δ), Decidable (q x)]
+def bcast' {μ:Type} [Serialize μ]
   (loc: δ)
   (msg: μ @ q)
-  (adj:  ∀ (l':δ), p l' -> ¬(q l') -> (ne: loc ≠ l') -> (Role.adj loc l' ne) := by decide)
-  (ex: p loc := by decide)
-  (owns: q loc := by decide)
+  (ex: loc ∈ p := by decide)
+  (owns: loc ∈ q := by decide)
   :
   Choreo p c μ
   :=
-  Choreo.Broadcast loc msg adj ex owns (fun x => Choreo.Return x)
+  Choreo.Broadcast loc msg ex owns (fun x => Choreo.Return x)
+
+/--
+broadcasts a value from one location to all other locations
+The Broadcaster is the one with lowest id of the intersection between owners and present roles
+-/
+def bcast {μ:Type} [Serialize μ]
+  (msg: μ @ q)
+  (ex: (p ∩ q).length > 0 := by decide)
+  :
+  Choreo p c μ
+  :=
+  let caster := (p ∩ q)[0]
+
+  have h := List.getElem_mem (p ∩ q) 0 ex
+  have h1: caster ∈ p := by simp[List.mem_of_mem_filter h]
+  have h2: caster ∈ q := by simp[List.mem_of_mem_inter_right h]
+
+  Choreo.Broadcast caster msg h1 h2 (fun x => Choreo.Return x)
+
 
 /--
 embedding a choreography containing stricly less roles
 -/
 def enclave
-  (p': δ -> Prop) [Decidable (p' ep)]
-  (subChor: {c': p' ep} -> Choreo p' c' α)
-  (imp: ∀ (x:δ),  p' x -> p x := by decide)
+  (rs: List δ)
+  (subChor: {c: ep ∈ rs} ->  Choreo rs c α)
+  (imp:  rs ⊆ p := by decide)
   :
-  Choreo p c (α @ p')
+  Choreo p c (α @ rs)
   :=
-  Choreo.Enclave (fun _ => subChor) imp (fun x => Choreo.Return x)
+  Choreo.Enclave rs (fun _ => subChor) imp (fun x => Choreo.Return x)
 
-/--running a program, requiring a single role to be present-/
-def locally'
-  (loc: δ)
-  (prog: IO α)
-  (alone: (∀ x, p x -> loc = x) := by decide)
-  :
-  Choreo p c α
-  := do
-  Choreo.Locally loc prog alone (fun x => Choreo.Return x)
-
-/--more convenient version of `locally'`, that figures out the role to run on automatically-/
-def locally
-  {p: δ -> Prop}
-  {c: p ep}
-  [∀ x, Decidable (p x)]
-  (prog: IO α)
-  (ex: p ep := by trivial)
-  (alone: (∀ x, p x -> (((Fin.enumerate N).filter p)[0]'sorry) = x) := by decide)
-:Choreo p c α
-  := do
-  let loc := ((Fin.enumerate N).filter p)[0]'(by sorry)
-  Choreo.Locally loc prog alone (fun x => Choreo.Return x)
-
-/-- returns a list of locations that fullfill 2 predicates, such that the locations are adjecent to every other location that fullills p but not q
-  this list consists of every location able to broadcast a value a@q for census p-/
-abbrev possible_caster (p q : δ -> Prop)
-  [∀ x, Decidable (p x)]
-  [∀ x, Decidable (q x)]
-  : List δ := ((Fin.enumerate N).filter
-  (fun x => q x ∧ p x ∧  ∀ (l':δ), p l' -> ¬(q l') -> (ne: x ≠ l') -> (Role.adj x l' ne)))
 
 /--
-Variant of `bcast'` where the broadcaster is infereed automatically.
+embedding a choreography containing only a single role that was present before.
+Allows to Access the RID class in the subchoreography, as the identity is known there
+(the implicit arguments of subChor help Lean with automatically proving some properties, not really an optimal solution though...)
 -/
-def bcast   {μ:Type} [Serialize μ]
-  [∀ x, Decidable (p x)]
-  [∀ (x:δ), Decidable (q x)]
-  (msg: μ @ q)
-  (castable: (possible_caster p q).length > 0 := by decide)
+def enclave'
+  (r: δ)
+  (subChor: [RID] -> {c: [rid] ⊆ [r]} -> {c2: rid = r} ->  Choreo [rid] (by simp; exact RID.is_ep.symm) α)
+  (imp:  r ∈ p := by decide)
   :
-  Choreo p c μ
+  Choreo p c (α @ [r])
   :=
-  Choreo.Broadcast ((possible_caster p q)[0]'castable) msg
-  (
-    have qq: ((possible_caster p q)[0]'castable) ∈ (possible_caster p q) := by exact List.getElem_mem (possible_caster p q) 0 castable
-    have q := List.of_mem_filter qq
-    by revert q; simp only [ne_eq, Bool.decide_and, Bool.and_eq_true, decide_eq_true_eq, and_imp]; exact
-      fun _ _ a l' a_1 a_2 ne => a l' a_1 a_2 ne
-  )
-  (
-    have qq: ((possible_caster p q)[0]'castable) ∈ (possible_caster p q) := by exact List.getElem_mem (possible_caster p q) 0 castable
-    have q := List.of_mem_filter qq
-    by revert q; simp only [ne_eq, Bool.decide_and, Bool.and_eq_true, decide_eq_true_eq, and_imp]; exact
-      fun _ a _ => a
-  )
-  (
-    have qq: ((possible_caster p q)[0]'castable) ∈ (possible_caster p q) := by exact List.getElem_mem (possible_caster p q) 0 castable
-    have q := List.of_mem_filter qq
-    by revert q; simp only [ne_eq, Bool.decide_and, Bool.and_eq_true, decide_eq_true_eq, and_imp]; exact
-      fun a _ _ => a
-  ) (fun x => Choreo.Return x)
+  Choreo.Enclave [r] (fun cen =>
+    have: RID := ⟨r, by revert cen; simp; exact fun x => x.symm⟩
+    have h: rid = r := by revert cen; simp [RID.is_ep]
+
+    by simp [←h]; exact subChor (c:= by simp; exact h) (c2 := h)) (fun ⦃_⦄ a => a) (fun x => Choreo.Return x)
+
+
+theorem in_to_eq (p: a ∈ [b]): a = b := by revert p; simp
+
+/--
+UNUSED
+provides acces to the RID class if only one role is present
+-/
+def single
+  (subChor: [RID] ->  Choreo [rid] (by simp; exact RID.is_ep.symm) α)
+  (alone: ∀ (r: δ), r ∈ p -> r =p[0]'(List.length_pos_of_mem c) := by decide)
+  :
+  Choreo [p[0]'(List.length_pos_of_mem c)] (by refine List.mem_singleton.mpr (alone ep c)) α
+  :=
+  have: RID := ⟨p[0]'(List.length_pos_of_mem c), (alone ep c).symm⟩
+  have h: rid = p[0]'(List.length_pos_of_mem c) := by simp [RID.is_ep]; exact (alone ep c)
+  by simp [←h]; exact subChor
+
+/--
+Runs code locally at the current RID
+-/
+def locally
+  [RID]
+  (prog: Free IO α)
+:Choreo p c α
+  := do
+  Choreo.Locally (prog) (fun x => Choreo.Return x)
+
+/--
+lifts programs into the choreo monad by the RID typeclass and locally exectuting programs
+-/
+instance [RID]: MonadLift IO (Choreo [rid] (by simp; exact RID.is_ep.symm)) where
+  monadLift x := locally x
+
 
 /-- combines enclave with broadcasting-/
 def enclave_bcast{μ:Type} [Serialize μ]
-  [∀ x, Decidable (p x)]
-  (p': δ -> Prop)
-  [∀ (x:δ), Decidable (p' x)]
-  (subChor: {c': p' ep} -> Choreo p' c' μ)
-  (imp: ∀ (x:δ),  p' x -> p x := by decide)
-  (castable: (possible_caster p p').length > 0 := by decide)
+  (rs: List δ)
+  (subChor: {c: ep ∈ rs} -> Choreo rs c μ)
+  (imp:  rs ⊆ p := by simp)
+  (ex: (p ∩ rs).length > 0 := by decide)
   :
   Choreo p c μ
   := do
-  let temp <- enclave p' subChor imp
-  bcast temp (castable := castable)
+  let temp <- enclave rs subChor imp
+  bcast temp ex
 
-notation:max  a "~" b  => enclave (fun x => x ∈ a) b
-notation:max  a "°" b  => enclave_bcast (fun x => x ∈ a) b
+/-- combines enclave with a single role with broadcasting-/
+def enclave_bcast'{μ:Type} [Serialize μ]
+  (r: δ)
+  (subChor: [RID] -> {c: [rid] ⊆ [r]} -> {c2: rid = r} -> Choreo [rid] (by simp; exact RID.is_ep.symm) μ)
+  (imp:  r ∈ p := by decide)
+  :
+  Choreo p c μ
+  := do
+  let temp <- enclave' r (fun {_} {c1} {c2} => subChor (c:=c1) (c2 := c2)) imp
+  bcast temp (by simp; sorry)
+
+/-- `a~~b` enclaves a choreography `b` to a list of roles `a`-/
+notation:max  a "~~" b  => enclave a b
+
+/-- `a°°b` enclaves a choreography `b` to a list of roles `a` and broadcasts the result to the outer census-/
+notation:max  a "°°" b  => enclave_bcast a b
+
+/-- `a~b` enclaves a choreography `b` to a single role `a`-/
+notation:max  a "~" b  => enclave' a b
+
+/-- `a°b` enclaves a choreography `b` to a single role `a` and broadcasts the result to the outer census-/
+notation:max  a "°" b  => enclave_bcast' a b
+
+abbrev sumAll: (List (Type -> Type)) -> Type -> Type
+| [] => IO
+| a::as => CoSum a (sumAll as)
+
+
+@[reducible] def List.inline_map (f : α → β) : List α → List β
+| []    => []
+| a::as => f a :: inline_map f as
+
+@[reducible] def List.inline_filter (p : α → Bool) : List α → List α
+  | [] => []
+  | a::as => match p a with
+    | true => a :: inline_filter p as
+    | false => inline_filter p as
+
+structure CoSum'
+  (p:List δ) (α:Type) where
+  es: (r:{r:δ // r ∈ p}) -> ((Role.sig r) α)
+
+structure M (ms: List (Type -> Type)) (α:Type) where
+  es: (i: Fin ms.length) -> ms[i] α
+
+instance inst (ms: List (Type -> Type)) (eff: Type -> Type)
+  [m: ∀ (i: Fin ms.length), MonadLift eff (ms[i])]: MonadLift eff (M ms) where
+
+  monadLift x := {es := fun r => (m r).monadLift x }
+
+
+instance {r:{x:δ // x ∈ rs}}: MonadLiftT (CoSum' rs) (Role.sig r) where
+  monadLift x := x.es r
+
+instance testinst (rs: List δ) (eff:Type -> Type) [m: ∀ (r: {x:δ // x ∈ rs}), MonadLiftT eff (Role.sig r.val)]: MonadLiftT eff (CoSum' rs) where
+  monadLift x := {es := fun r => (m r).monadLift x }
 
 /--
-  runs a program with access to its identity in parallel by iterating over all present roles and running the program there locally.
+runs a program in parallel and grants access to the Role IDentity.
+results in a `Faceted` value.
 -/
 def par
-  [∀ (x:δ), Decidable (p x)]
-  (prog: (r:{r:δ // r = ep}) -> IO α)
+  (prog: [RID] -> IO α)
   :
   Choreo p c (Faceted α)
   := do
 
-  let filtered := (Fin.enumerate N).filter p
 
-  let temp: List ((r:δ) ×  (α @ (· = r))) <- filtered.mapM (fun x => do
-    let res <- enclave (· = x) (fun {c'} => locally' x (prog ⟨x, c'.symm⟩) (fun _ a => id (Eq.symm a))) (by simp [List.filter, List.of_mem_filter]; sorry)
+  let temp: List ((r:δ) ×  (α @ [r])) <- p.attach.mapM (fun (x:{r:δ // r ∈ p}) => do
+
+    let res <- enclave (rs:=[x]) ( fun {c'} => do
+
+      have: RID := ⟨x,  by revert c'; simp; exact fun {z} => (Eq.symm z)⟩
+
+      have lifter: MonadLiftT (CoSum' p) (Role.sig x) := ⟨fun y => y.es x⟩
+      have lifter2: MonadLiftT (Free (CoSum' p)) (Free (Role.sig x)) := inferInstance
+      have: RID := ⟨x, by revert c'; simp; exact fun {c'} => id (Eq.symm c')⟩
+      locally prog
+    )
+      (by simp [List.filter, List.of_mem_filter, c]; exact x.prop)
     return ⟨x, res⟩
   )
   return fun x => (temp.dlookup x).get (by sorry)
 
+
 /--
 convenience method that communicates the result of a local program from a sender to a receiver
 -/
-def com  [Serialize μ] [∀ x, Decidable (p x)]
+def com  [Serialize μ]
   (sender receiver: δ)
-  (prog: (ep = sender) -> IO μ)
-  (adj:  (ne: sender ≠ receiver) -> (Role.adj sender receiver ne) := by decide)
-  (ex_sender: p sender := by decide)
-  (ex_receiver: p receiver := by decide)
+  (prog: [RID] -> (rid = sender) -> IO μ)
+  (ex_sender: sender ∈ p := by decide)
+  (ex_receiver: receiver ∈ p := by decide)
   :
-  Choreo p c (μ @ fun x => x = sender ∨ x = receiver)
+  Choreo p c (μ @ [sender, receiver])
   := do
-  enclave (p' := fun x => x = sender ∨ x = receiver)
-    (imp := by simp only [forall_eq_or_imp, forall_eq]; exact ⟨ex_sender, ex_receiver⟩) ( do
+  enclave [sender,receiver] (fun {cen} => do
+      let res <- enclave [sender] (fun {cen} =>
+          have: RID := ⟨sender, (in_to_eq cen).symm⟩
 
-    let res <- enclave (· = sender) (fun {cen} => locally' sender (prog cen) (by simp)) (by simp)
-    let res' <- bcast' sender res (fun x y z => (by simp [←adj]; sorry)) (by simp) (by simp)
-    return res'
-  )
+          have qq: rid = sender := by revert cen; simp; exact fun {cen} => id (Eq.symm (by simp[RID.is_ep]; exact Eq.symm cen))
+          locally (prog (qq))
+        )
+        (by simp)
+      let res' <- bcast' sender res (by simp) (by simp)
+      return res'
+    )
+    (by simp; exact ⟨ex_sender, ex_receiver⟩ )
 
 /--
 gathers the content of a `Faceted` in one single Role
 -/
-def gather  [Serialize μ]  {p: δ -> Prop} {c: p ep} [∀ x, Decidable (p x)]
+def gather  [Serialize μ]
   (loc: δ)
   (data: Faceted μ)
-  (ex: p loc := by decide)
-  (adj:  ∀ (l':δ), p l' -> (ne: l' ≠ loc) -> (Role.adj l' loc ne) := by decide)
+  (ex: loc ∈ p := by decide)
   :
-  Choreo p c (({l // p l} -> μ) @ (· = loc))
+  Choreo p c (({l // l ∈ p} -> μ) @ [loc])
   := do
-    let mut vals: List ({l // p l} × (μ @ (· = loc))) := []
-    let filtered := (Fin.enumerate N).filter p
+    let mut vals: List ({l // l ∈ p} × (μ @ [loc])) := []
 
-    let temp: List ({l // p l} × (μ @ (· = loc))) <- filtered.mapM (fun x => do
-      let xx := List.filter_true vals
-      have qq: p x := by sorry
+
+    let temp: List ({l // l ∈ p} × (μ @ [loc])) <- p.attach.mapM (fun (x: {r // r ∈ p}) => do
 
       let v <- com
-        (sender:=x)
-        (receiver:=loc)
-        (ex_sender := qq)
-        (ex_receiver:= ex)
-        (adj := fun ne => adj x qq ne)
-        (fun {cen} => return (data x cen))
+        (x.val)
+        (loc)
+        (fun cen => return (data x (by simp [←RID.is_ep, cen])))
+        (x.prop)
+        (ex)
 
-      return ⟨⟨x, qq⟩, v.cast (impl := fun a => Or.inr a)⟩
+
+      return ⟨x, v.cast (impl := fun a => by exact List.mem_cons_of_mem x.val a)⟩
     )
     return fun a b => ((temp.lookup b).get (sorry)) a
 
@@ -510,108 +601,99 @@ def gather  [Serialize μ]  {p: δ -> Prop} {c: p ep} [∀ x, Decidable (p x)]
 gathers all values of a faceted List in a single location by merging all individual lists.
 merging defaults to appending lists
 -/
-def gatherList  [Serialize μ]  {p: δ -> Prop} {c: p ep} [∀ x, Decidable (p x)]
+def gatherList  [Serialize μ]
   (loc: δ)
   (data: Faceted (List μ))
   (merge: List μ -> List μ -> List μ := List.append)
-  (ex: p loc := by decide)
-  (adj:  ∀ (l':δ), p l' -> (ne: l' ≠ loc) -> (Role.adj l' loc ne) := by decide)
+  (ex: loc ∈ p := by decide)
   :
-  Choreo p c ((List μ) @ (· = loc))
+  Choreo p c ((List μ) @ [loc])
   := do
-  let temp <- gather loc data ex adj
+  let temp <- gather loc data ex
 
-  enclave (· = loc) ( fun {cen} =>
-    locally' loc (do
+  enclave [loc] (fun {cen} =>
+    have: RID := ⟨loc, (in_to_eq cen).symm⟩
+    locally (do
     let mut res: List μ := []
-    for x in (Fin.enumerate N) do
-      if h: p x then
+    for x in (Fin.list N) do
+      if h: x ∈ p then
         res := merge res ((temp cen) ⟨x, h⟩)
     return res
-    ) (by simp)
+    )
   ) (by simp; exact ex)
 
 /--
 broadcast different role-dependent values of the same type
 -/
-def scatter  [Serialize μ]  {p: δ -> Prop} {c: p ep} [∀ x, Decidable (p x)]
+def scatter  [Serialize μ]
   {loc: δ}
-  (data:  {l // p l} -> (μ @ (· = loc)))
-  (ex: p loc := by decide)
-  (adj:  ∀ (l':δ), p l' -> (ne: loc ≠ l') -> (Role.adj loc l' ne) := by decide)
+  (data:  {l // l ∈ p.dedup} -> (μ @ [loc]))
+  (ex: loc ∈ p := by decide)
   :
   Choreo p c (Faceted μ)
   := do
 
-  let mut lst: List (Σ (owner:{l // p l}), (μ @ (· = owner.val))) := []
+  let mut lst: List (Σ (owner:{l // l ∈ p}), (μ @ [owner])) := []
 
-  for x in (Fin.enumerate N) do
-    if h: (p x) then
+  for x in (Fin.list N) do
+    if h: (x ∈ p) then
 
-      let lv <- com loc x (fun {cen} =>
-          return (data ⟨x, h⟩) cen
+
+      let lv <- com loc x (fun cen =>do
+
+          dbg_trace s!"SENDING: {data ⟨x, by simp; exact h⟩} to {Role.name x}";
+
+          return (data ⟨x, by simp; exact h⟩) (by simp [←RID.is_ep, cen])
         )
-        (fun ne => adj x h ne)
         ex
         h
 
-      lst := lst.concat ⟨⟨x, h⟩, lv.cast (impl := fun {x_1} a => Or.inr a)⟩
-  let res :=  ((lst.dlookup ⟨ep, c⟩).get (by sorry)) (by trivial)
-  return Faceted.of res
+      lst := lst.concat ⟨⟨x, h⟩, lv.cast (impl := fun {x_1} a => by exact List.mem_cons_of_mem loc a)⟩
 
-
-/--chunk size helper function for scatterList-/
-def chunk_size  (r: δ) (data_size: Nat) :=
-  let res := data_size % N
-  if r < res then
-    res + 1
-  else
-    res
-
+  return Faceted.of (fun r => ((lst.dlookup ⟨r, sorry⟩).get (by sorry)) (by sorry))
 
 /--
 scatters items of a list evenly across nodes. The first portion of nodes might handle one additional item if there is a rest
 -/
-def scatterList  [Serialize μ]  {p: δ -> Prop} {c: p ep} [∀ x, Decidable (p x)]
+def scatterList  [Serialize μ]
   {loc: δ}
-  (data:  (List μ) @ (· = loc))
-  (ex: p loc := by decide)
-  (adj:  ∀ (l':δ), p l' -> (ne: loc ≠ l') -> (Role.adj loc l' ne) := by decide)
+  (data:  (List μ) @ [loc])
+  (ex: loc ∈ p := by decide)
   :
   Choreo p c (Faceted (List μ))  := do
 
-  let N := (FinEnum.card {l // p l})
-  let data':  {l // p l} -> (List μ) @ (· = loc) :=
+  let N := p.dedup.length
+  let data':  {l // l ∈ p.dedup} -> (List μ) @ [loc] :=
     fun x y =>
+      let idx := p.dedup.attach.findIdx (· = x)
 
       let chunk_size := (data y).length / N
       let rest := (data y).length % N
-      let chunk_start := (x * chunk_size) + (min rest x)
+      let chunk_start := (idx * chunk_size) + (min rest idx)
 
       let chunk_size :=
-        if x < rest then
+        if idx < rest then
           chunk_size + 1
         else
           chunk_size
       (data y).fromTo chunk_start chunk_size
 
-  scatter data' ex adj (loc := loc)
+  scatter data' ex (loc := loc)
 
 /--
 -- gathers all values of a `Faceted` at a every location
 -/
-def gatherAll  [Serialize μ]  {p: δ -> Prop} {c: p ep} [∀ x, Decidable (p x)]
+def gatherAll  [Serialize μ]
   (data: Faceted μ)
   :
-  Choreo p c ({l // p l}-> μ)
+  Choreo p c ({l // l ∈ p}-> μ)
   := do
-  let filtered := (Fin.enumerate N).filter p
 
-  let temp: List ({l // p l} × μ) <- filtered.mapM (fun x => do
+  let temp: List ({l // l ∈ p} × μ) <- p.mapM (fun x => do
 
-    have qq: p x := by sorry
+    have qq: x ∈ p := by sorry
 
-    let temp <- bcast' x (data x) (sorry) qq rfl
+    let temp <- bcast' x (data x) qq (by simp)
     return ⟨⟨x, qq⟩, temp⟩
   )
 
@@ -627,6 +709,7 @@ private def endpointFromString (s: String): IO (Endpoint) :=
   else
     throw (IO.userError s!"{s} is no valid endpoint")
 
+
 /--
 class for a well defined entry point into the library
 -/
@@ -635,14 +718,14 @@ class ChorMain where
   choreographic main function. The List of strings corresponds to command line input per node, starting after the endpoint argument.
   The main function starts by including every Role.
   -/
-  main: [Endpoint] -> Faceted (List String) -> Choreo all rfl (Faceted UInt32)
+  main: [Endpoint] -> Faceted (List String) -> Choreo all (sorry) (Faceted UInt32)
 
 /--
 Main Entry point. users shall call this by:
 main := CHOR_ENTRYPOINT
 -/
 def CHOR_ENTRYPOINT
-  [cm: ChorMain ]
+  [cm: ChorMain]
   (args: List String)
   (cfg: dbg_cfg :=dbg_cfg_default)
   : IO UInt32 := do
@@ -664,13 +747,13 @@ def CHOR_ENTRYPOINT
 
     IO.println s!"{"start choreo".dyeFont Color.Yellow}"
     IO.println ((s!"<<<{Role.name ep}>>>".dye Color.Black Color.White) ++ "\n")
-    let _nepp := NetEPP net (cfg:=cfg)
-    let _epp := EPP (p:= fun _ => true) net (cfg:=cfg)
 
-    let cmain: Choreo all rfl (Faceted UInt32) := cm.main (Faceted.of (args.drop 1))
+    let _epp := EPP (net := net) (cfg:=dbg_cfg_default) (p := all)
+
+    let cmain := cm.main (Faceted.of (fun _ => (args.drop 1)))
 
     let res <- cmain
-    IO.println s!"EXIT_CODE: {res ep rfl}"
-    return res ep rfl
+    IO.println s!"EXIT_CODE: {res ep (by simp)}"
+    return res ep (by simp)
   else
     throw (IO.userError s!"no endpoint argument\nenter endpoint as first argument")

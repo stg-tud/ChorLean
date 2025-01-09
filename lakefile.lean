@@ -17,22 +17,22 @@ lean_exe «chorlean» where
   root := `Main
 
 lean_exe auth where
-  root := `Chorlean.examples.sso_auth
+  root := `examples.sso_auth
   moreLeancArgs := #["-fPIC"]
   supportInterpreter := true
 
 lean_exe merge where
-  root := `Chorlean.examples.mergesort
+  root := `examples.mergesort
   moreLeancArgs := #["-fPIC"]
   supportInterpreter := true
 
 
 lean_exe books where
-  root := `Chorlean.examples.bookseller
+  root := `examples.bookseller
   moreLeancArgs := #["-fPIC"]
   supportInterpreter := true
 
 lean_exe RPS where
-  root := `Chorlean.examples.sso_authcopy
+  root := `examples.RockPaperScissors
   moreLeancArgs := #["-fPIC"]
   supportInterpreter := true

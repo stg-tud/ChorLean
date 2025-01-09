@@ -25,6 +25,8 @@ instance: Signature ComputeEff where
 instance: Signature EmptyEff where
   interpretation x := by contradiction
 
+instance: Signature IO where
+  interpretation := id
 
   inductive Log: Type → Type
   | warning: String → Log Unit
@@ -89,7 +91,7 @@ instance: Signature EmptyEff where
   def Time.NanosToSec: Nat → Float :=  fun x => x.toFloat / 1000000000
 
 
-  
+
 end Effect
 
 
@@ -107,5 +109,3 @@ def descending_list: Nat → List Nat
 def generate_random_list (n:Nat): Free Effect.Rand (List Nat) := do
   let sorted := descending_list n
   generate_random_list_rec sorted n
-
-

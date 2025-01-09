@@ -24,29 +24,31 @@ def deliveryDate := do
 
 instance: Role where
   N := 2
+  executable
+  |0 => inferInstance | 1 => inferInstance
   name | 0 => "buyer" | 1 => "seller"
 
-def buyer: Fin 2 := 0
-def seller: Fin 2 := 1
+def buyer: δ := 0
+def seller: δ := 1
 
 variable [Endpoint]
 variable [MonadLiftT NetEff IO]
 
-def budget:Nat @ (· = buyer) := Located.wrap 150
+def budget:Nat @ [buyer] := Located.wrap 150
 
-def books: Choreo all c String:= do
+def books: Choreo [buyer, seller] cen String:= do
 
-  let title <- [buyer]° locally get_title
-  let price <- [seller]° (do
+  let title <- buyer° get_title
+  let price <- seller° (
     return if title == "Faust" then 100 else 200
   )
 
-  let decision: Bool <- [buyer]° (fun {cen} =>
-    return (budget (by revert cen; simp)) >= price
+  let decision: Bool <- buyer° (fun {cen} =>
+    return (budget.un) >= price
   )
 
   if decision then
-    let date ← [seller]° locally deliveryDate
+    let date ← seller° deliveryDate
     return date
   else
     return "never"
@@ -54,7 +56,8 @@ def books: Choreo all c String:= do
 instance: ChorMain where
   main _ := do
     let res <- books
-    [buyer]~ locally (IO.println s!"delivery date: {res}")
+
+    buyer~ locally (IO.println s!"delivery date: {res}")
     return Faceted.of 0
 
 

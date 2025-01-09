@@ -9,27 +9,29 @@ instance [Signature ops]: MonadLiftT ops IO where
 
 class Role where
   N: Nat
-  adj: (s r: (Fin N)) → (s ≠ r) -> Bool := fun _ _ _ => True
+  sig: Fin N → (Type → Type) := fun _ => IO
 
-  name: Fin N -> String
+  name: Fin N -> String := fun (x) => s!"#{x.val}"
   unique_names: ∀ a b: Fin N, name a = name b -> a = b := by decide
 
+  [executable: ∀ (l:Fin N), Signature (sig l)]
+
+@[reducible]
 def Fin.enumerate: (n:Nat) -> List (Fin n)
 | 0 => []
 | i + 1 =>
   let temp: List (Fin (i+1)) := enumerate i
   temp ++ [⟨i, Nat.lt_add_one i⟩]
 
-theorem enum_complete: ∀ (n:Nat) (f:Fin n), f ∈ Fin.enumerate n := by sorry
-
-
 
 variable [Role]
 abbrev N := Role.N
 abbrev δ := Fin N
 
+abbrev Role.list := Fin.enumerate N
+
 def max_name_len [Role]: Nat :=
-  longest_string ((Fin.enumerate N).map (fun x => Role.name x))
+  longest_string ((Role.list).map (fun x => Role.name x))
 
 def Role.ofString? (s:String) [Role]:  Option δ := do
   for e in (FinEnum.toList δ) do

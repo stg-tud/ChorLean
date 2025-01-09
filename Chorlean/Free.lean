@@ -52,8 +52,13 @@ structure CoSum
   l: inl α
   r: inr α
 
+
+
+
 instance [m1: MonadLiftT eff eff1] [m2: MonadLiftT eff eff2]: MonadLiftT eff (CoSum eff1 eff2) where
   monadLift x := {l := m1.monadLift x, r := m2.monadLift x}
+
+
 
 instance: MonadLiftT (CoSum eff1 eff2) eff1 where
   monadLift x := x.l
@@ -87,10 +92,10 @@ inductive PrintEff: Type → Type
 abbrev memPrinter := Free (CoProd PrintEff (StateM String))
 
 
-inductive LogEff1: Type → Type 1
+inductive LogEff1: Type → Type
 | Print2: Nat → LogEff1 Unit
 
-inductive LogEff2: Type → Type 1
+inductive LogEff2: Type → Type
 | Print3: Nat → LogEff2 Unit
 
 @[reducible] def LogPrintEff := Free (CoProd PrintEff LogEff1)
@@ -150,6 +155,17 @@ def prog2: Free LogPrintEff2 Unit :=do
   LogEff2.Print3 23
   return ()
 
+@[reducible]
+def coSumAll: (List (Type -> Type)) -> Type -> Type
+| [] => IO
+| a::as => CoSum a (coSumAll as)
+
+@[reducible]
+def bla := IO
+
+def prog3: Free (coSumAll [PrintEff, IO, bla, IO]) Unit :=do
+  Print1 "Hello"
+  return ()
 
 
 def Main: IO Unit := do

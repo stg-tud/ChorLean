@@ -9,9 +9,9 @@ instance r_inst: Role where
   name
   | 0 => "Master" | 1 => "W1" | 2 => "W2"
 
-def Master: Fin 3 := 0
-def W0: Fin 3 := 1
-def W1: Fin 3 := 2
+def Master: δ := 0
+def W0: δ     := 1
+def W1: δ     := 2
 
 variable [ep_inst: Endpoint]
 
@@ -30,8 +30,8 @@ abbrev sort_serial': List Nat -> List Nat:=
   List.mergeSort (· < ·)
 
 def par_sort
-  (ls:  (List Nat) @ (· = W0))
-  : Choreo (· ≠ Master) c ((List Nat)  @ (· = W0) ) := do
+  (ls:  (List Nat) @ [W0])
+  : Choreo (all \ [Master]) c ((List Nat)  @ [W0] ) := do
 
   let chunks        <- scatterList ls
   let sorted_chunks := (chunks.map sort_serial')
@@ -40,19 +40,19 @@ def par_sort
 
 instance: ChorMain where
   main _args := do
-    let data <- [W0, Master]~
-      [Master]° locally do
+    let data <- [W0, Master]~~
+      Master° do
         let n <- CmdInput.readNat (.some "enter the random List length")
         return (<-generate_random_list n)
 
-    let sorted <- enclave (· ≠ Master)
+    let sorted <- enclave (all \ [Master])
       (par_sort data.cast)
 
-    let sorted: (List ℕ)@fun x => x = W0 := sorted.flatten.cast
+    let sorted: (List ℕ)@ [W0]  := sorted.flatten.cast
 
-    let sorted' <- [W0, Master]~
-      [W0]°
-        (fun {cen} => return (sorted (by revert cen; simp)))
+    let sorted' <- [W0, Master]~~
+      W0°
+        (fun {cen} => return (sorted.un))
 
 
     return Faceted.of 0
