@@ -18,16 +18,19 @@ lean_exe «chorlean» where
 
 lean_exe auth where
   root := `examples.sso_auth
+  root := `examples.sso_auth
   moreLeancArgs := #["-fPIC"]
   supportInterpreter := true
 
 lean_exe merge where
+  root := `examples.mergesort
   root := `examples.mergesort
   moreLeancArgs := #["-fPIC"]
   supportInterpreter := true
 
 
 lean_exe books where
+  root := `examples.bookseller
   root := `examples.bookseller
   moreLeancArgs := #["-fPIC"]
   supportInterpreter := true
