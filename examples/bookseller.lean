@@ -36,6 +36,7 @@ variable [MonadLiftT NetEff IO]
 
 def budget:Nat @ [buyer] := Located.wrap 150
 
+
 def books: Choreo [buyer, seller] cen String:= do
 
   let title <- buyer° get_title
@@ -43,7 +44,7 @@ def books: Choreo [buyer, seller] cen String:= do
     return if title == "Faust" then 100 else 200
   )
 
-  let decision: Bool <- buyer° (fun {cen} =>
+  let decision: Bool <- buyer° (
     return (budget.un) >= price
   )
 

@@ -51,8 +51,7 @@ instance: ChorMain where
     let sorted: (List ℕ)@ [W0]  := sorted.flatten.cast
 
     let sorted' <- [W0, Master]~~
-      W0°
-        (fun {cen} => return (sorted.un))
+      W0° (return (sorted.un))
 
 
     return Faceted.of 0
