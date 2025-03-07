@@ -732,7 +732,8 @@ def CHOR_ENTRYPOINT
   if h:(args.length >= 1) then
     let mode := args[0]'(h)
     let _ep: Endpoint <- endpointFromString mode
-    IO.clearTerminal
+    if cfg.clear_terminal_at_init then
+      IO.clearTerminal
 
     if cfg.print_EP then
       IO.println (
@@ -745,8 +746,9 @@ def CHOR_ENTRYPOINT
 
     let net <- init_network (cfg:=cfg)
 
-    IO.println s!"{"start choreo".dyeFont Color.Yellow}"
-    IO.println ((s!"<<<{Role.name ep}>>>".dye Color.Black Color.White) ++ "\n")
+    if cfg.print_choreo_start then
+      IO.println s!"{"start choreo".dyeFont Color.Yellow}"
+      IO.println ((s!"<<<{Role.name ep}>>>".dye Color.Black Color.White) ++ "\n")
 
     let _epp := EPP (net := net) (cfg:=dbg_cfg_default) (p := all)
 
