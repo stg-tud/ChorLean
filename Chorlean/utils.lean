@@ -16,6 +16,10 @@ structure dbg_cfg where
   print_init_sockets := true
   -- print sent and received bytes
   print_net_bytes := false
+  -- print info when choreo is starting
+  print_choreo_start := true
+  -- clear the terminal at initialization
+  clear_terminal_at_init := true
 
 
 def dbg_cfg_default: dbg_cfg :=  {}
